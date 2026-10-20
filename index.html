@@ -54,7 +54,7 @@
   $('cam').onchange = async ev => {
     const file = ev.target.files[0];
     if (!file) return;
-    const dataUrl = await reducir(file, 800, 0.8);
+    const dataUrl = await reducir(file, 640, 0.7);
     $('prev').src = dataUrl; $('prev').style.display = 'block';
     $('btnFoto').style.display = 'none';
     $('spin').style.display = 'block';
