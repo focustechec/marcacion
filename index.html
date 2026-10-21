@@ -12,12 +12,16 @@
   .top { text-align: left; margin-bottom: 8px; }
   .top a { color: #2563eb; text-decoration: none; font-size: 16px; font-weight: 600; }
   h1 { font-size: 26px; margin: 8px 0 4px; }
-  .sub { color: #6b7280; margin-bottom: 24px; font-size: 15px; }
+  .sub { color: #6b7280; margin-bottom: 18px; font-size: 15px; }
   .btn { display: block; width: 100%; padding: 22px; font-size: 20px; font-weight: 600; border: 0;
          border-radius: 16px; color: #fff; background: #2563eb; cursor: pointer; text-decoration: none; }
+  .btn:disabled { background: #9ca3af; }
   .btn.sec { background: #374151; margin-top: 12px; font-size: 17px; padding: 16px; }
   .btn.app { background: #16a34a; margin-top: 12px; font-size: 18px; padding: 18px; }
-  img.prev { width: 160px; height: 160px; object-fit: cover; border-radius: 50%; margin: 10px auto; display: none; }
+  .cam { position: relative; width: 260px; height: 260px; margin: 0 auto 16px; border-radius: 50%;
+         overflow: hidden; background: #111827; display: none; }
+  .cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  img.prev { width: 200px; height: 200px; object-fit: cover; border-radius: 50%; margin: 10px auto; display: none; }
   .res { margin-top: 18px; padding: 18px; border-radius: 14px; font-size: 18px; display: none; }
   .res.ok { background: #16a34a; color: #fff; }
   .res.err { background: #dc2626; color: #fff; }
@@ -25,18 +29,19 @@
   .spin { display: none; margin: 18px auto; width: 42px; height: 42px; border: 4px solid #cbd5e1;
           border-top-color: #2563eb; border-radius: 50%; animation: s 1s linear infinite; }
   @keyframes s { to { transform: rotate(360deg); } }
-  input[type=file] { display: none; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="top"><a href="#" id="lnkVolver">✕ Cancelar y volver a la app</a></div>
   <h1 id="titulo">Marcación</h1>
-  <div class="sub">Toma una foto de tu rostro con buena luz</div>
+  <div class="sub" id="sub">Mira a la cámara con buena luz</div>
 
+  <div class="cam" id="camBox"><video id="video" autoplay playsinline muted></video></div>
   <img id="prev" class="prev" alt="">
-  <button id="btnFoto" class="btn">📷 Tomar foto</button>
-  <input id="cam" type="file" accept="image/*" capture="user">
+
+  <button id="btnAbrir" class="btn">📷 Abrir cámara</button>
+  <button id="btnCapturar" class="btn" style="display:none">📸 Tomar foto</button>
 
   <div id="spin" class="spin"></div>
   <div id="res" class="res"></div>
@@ -53,17 +58,18 @@
   const VISTA_DETALLE = "marcaciones_Detail";
   // Segundos antes de volver solo a la app después de una marcación exitosa
   const VOLVER_EN = 4;
+  // ⬇️ true = solo permite marcar desde celular o tablet (bloquea computadoras)
+  const SOLO_CELULAR = false;
 
   const P = Object.fromEntries(new URLSearchParams(location.search));
   const modo = P.modo === 'salida' ? 'salida' : 'entrada';
   const $ = id => document.getElementById(id);
-  let enviando = false;
+  let enviando = false, stream = null, idMarcacion = "";
 
   $('titulo').textContent = modo === 'entrada' ? 'Marcar ENTRADA' : 'Marcar SALIDA';
 
-  // "replace" para que esta página no quede en el historial (el botón Atrás no vuelve aquí)
-  let idMarcacion = "";
   function volverApp() {
+    apagarCamara();
     const destino = idMarcacion
       ? APP_URL + "#control=" + encodeURIComponent(VISTA_DETALLE) + "&row=" + encodeURIComponent(idMarcacion)
       : APP_URL;
@@ -71,20 +77,71 @@
   }
   $('lnkVolver').onclick = e => { e.preventDefault(); volverApp(); };
   $('btnApp').onclick = e => { e.preventDefault(); volverApp(); };
-
-  // Si Safari muestra esta página desde el botón Atrás, se recarga limpia
   window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
 
-  $('btnFoto').onclick = () => $('cam').click();
-  $('btnOtra').onclick = () => { reset(); $('cam').click(); };
+  function esCelular() {
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+  function bloquear(msg) {
+    $('btnAbrir').style.display = 'none';
+    $('btnCapturar').style.display = 'none';
+    $('camBox').style.display = 'none';
+    const box = $('res');
+    box.className = 'res err'; box.style.display = 'block';
+    box.textContent = '❌ ' + msg;
+    $('btnApp').style.display = 'block';
+  }
+  if (SOLO_CELULAR && !esCelular()) {
+    bloquear('La marcación solo se puede hacer desde un celular.');
+  } else if (!window.isSecureContext) {
+    bloquear('Esta página debe abrirse con https:// para poder usar la cámara.');
+  } else if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    bloquear('Este dispositivo o navegador no permite usar la cámara. Marca desde tu celular.');
+  }
 
-  $('cam').onchange = async ev => {
-    const file = ev.target.files[0];
-    if (!file || enviando) return;
+  async function abrirCamara() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+        audio: false
+      });
+      $('video').srcObject = stream;
+      $('camBox').style.display = 'block';
+      $('btnAbrir').style.display = 'none';
+      $('btnCapturar').style.display = 'block';
+      $('btnCapturar').disabled = true;
+      $('video').onloadeddata = () => { $('btnCapturar').disabled = false; };
+    } catch (e) {
+      if (e.name === 'NotAllowedError') {
+        bloquear('No diste permiso para usar la cámara. Actívalo en los ajustes del navegador e intenta de nuevo.');
+      } else if (e.name === 'NotFoundError' || e.name === 'OverconstrainedError') {
+        bloquear('No se encontró una cámara en este dispositivo. Marca desde tu celular.');
+      } else {
+        bloquear('No se pudo abrir la cámara: ' + e.message);
+      }
+    }
+  }
+  function apagarCamara() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  }
+  $('btnAbrir').onclick = abrirCamara;
+
+  $('btnCapturar').onclick = async () => {
+    if (enviando) return;
     enviando = true;
-    const dataUrl = await reducir(file, 640, 0.7);
+    const v = $('video');
+    const lado = Math.min(v.videoWidth, v.videoHeight);
+    const salida = Math.min(640, lado);
+    const c = document.createElement('canvas');
+    c.width = salida; c.height = salida;
+    c.getContext('2d').drawImage(v, (v.videoWidth - lado) / 2, (v.videoHeight - lado) / 2, lado, lado, 0, 0, salida, salida);
+    const dataUrl = c.toDataURL('image/jpeg', 0.7);
+    apagarCamara();
+
+    $('camBox').style.display = 'none';
+    $('btnCapturar').style.display = 'none';
     $('prev').src = dataUrl; $('prev').style.display = 'block';
-    $('btnFoto').style.display = 'none';
     $('spin').style.display = 'block';
 
     try {
@@ -99,6 +156,12 @@
       mostrar({ ok: false, motivo: 'Error de conexión. Revisa tu internet e intenta de nuevo.' });
     }
     enviando = false;
+  };
+
+  $('btnOtra').onclick = () => {
+    $('res').style.display = 'none'; $('btnOtra').style.display = 'none';
+    $('btnApp').style.display = 'none'; $('prev').style.display = 'none';
+    abrirCamara();
   };
 
   function mostrar(r) {
@@ -125,27 +188,6 @@
       box.textContent = '❌ ' + r.motivo;
       $('btnOtra').style.display = 'block';
     }
-  }
-
-  function reset() {
-    $('res').style.display = 'none'; $('btnOtra').style.display = 'none';
-    $('btnApp').style.display = 'none';
-    $('prev').style.display = 'none'; $('cam').value = '';
-    $('btnFoto').style.display = 'block';
-  }
-
-  function reducir(file, max, calidad) {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => {
-        const k = Math.min(1, max / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL('image/jpeg', calidad));
-      };
-      img.src = URL.createObjectURL(file);
-    });
   }
 </script>
 </body>
