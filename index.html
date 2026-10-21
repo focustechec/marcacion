@@ -30,7 +30,7 @@
 </head>
 <body>
 <div class="card">
-  <div class="top"><a href="#" id="lnkVolver">← Volver a la app</a></div>
+  <div class="top"><a href="#" id="lnkVolver">✕ Cancelar y volver a la app</a></div>
   <h1 id="titulo">Marcación</h1>
   <div class="sub">Toma una foto de tu rostro con buena luz</div>
 
@@ -45,19 +45,24 @@
 </div>
 
 <script>
+  // ⬇️ URL de tu implementación de Apps Script (termina en /exec)
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwZb0O8slRyM7P3VZANTHByCQXHg7N6HUHaEbYD-FWszXFhRkgGAUl-HWBTPzwzSfCDbQ/exec";
+  // ⬇️ Dirección de tu app (a donde vuelve el empleado)
   const APP_URL = "https://th-marcacion.focustechinc.net/";
+  // ⬇️ Nombre de la vista de detalle de marcaciones en AppSheet
   const VISTA_DETALLE = "marcaciones_Detail";
+  // Segundos antes de volver solo a la app después de una marcación exitosa
   const VOLVER_EN = 4;
 
   const P = Object.fromEntries(new URLSearchParams(location.search));
   const modo = P.modo === 'salida' ? 'salida' : 'entrada';
   const $ = id => document.getElementById(id);
   let enviando = false;
-  let idMarcacion = "";
 
   $('titulo').textContent = modo === 'entrada' ? 'Marcar ENTRADA' : 'Marcar SALIDA';
 
+  // "replace" para que esta página no quede en el historial (el botón Atrás no vuelve aquí)
+  let idMarcacion = "";
   function volverApp() {
     const destino = idMarcacion
       ? APP_URL + "#control=" + encodeURIComponent(VISTA_DETALLE) + "&row=" + encodeURIComponent(idMarcacion)
@@ -67,6 +72,7 @@
   $('lnkVolver').onclick = e => { e.preventDefault(); volverApp(); };
   $('btnApp').onclick = e => { e.preventDefault(); volverApp(); };
 
+  // Si Safari muestra esta página desde el botón Atrás, se recarga limpia
   window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
 
   $('btnFoto').onclick = () => $('cam').click();
@@ -102,6 +108,7 @@
     $('btnApp').style.display = 'block';
     if (r.ok) {
       idMarcacion = r.id || "";
+      $('lnkVolver').style.display = 'none';
       $('btnApp').textContent = 'Ver mi marcación en la app';
       box.className = 'res ok';
       box.innerHTML = '✅ ' + r.mensaje + '<small>' + r.detalle + '</small>' +
@@ -124,6 +131,7 @@
     $('res').style.display = 'none'; $('btnOtra').style.display = 'none';
     $('btnApp').style.display = 'none';
     $('prev').style.display = 'none'; $('cam').value = '';
+    $('btnFoto').style.display = 'block';
   }
 
   function reducir(file, max, calidad) {
